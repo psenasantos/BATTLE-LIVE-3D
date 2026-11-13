@@ -1,0 +1,354 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BATTLE LIVE 3D</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080d18;color:white;font-family:Arial,sans-serif}
+header{padding:15px;text-align:center;background:#101a2d;border-bottom:1px solid #263956}
+header h1{margin:0;color:#55d8ff;letter-spacing:2px}
+header p{margin:6px 0 0;color:#9eabc0;font-size:12px}
+#game{height:52vh;min-height:300px;position:relative}
+#game canvas{display:block;width:100%;height:100%}
+.stats{display:flex;justify-content:space-around;padding:12px;background:#111b2d;text-align:center}
+.stat strong{display:block;font-size:22px;color:#55d8ff}
+.stat span{font-size:11px;color:#9eabc0}
+.controls{padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:9px}
+button{border:0;border-radius:10px;padding:13px;font-weight:bold;background:#167bce;color:white}
+button:active{transform:scale(.97)}
+button.secondary{background:#26364f}
+button.danger{background:#a83246}
+.panel{margin:0 14px 14px;padding:14px;background:#111b2d;border:1px solid #263956;border-radius:12px}
+.panel h3{margin:0 0 12px;color:#55d8ff}
+#players{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.player{padding:9px;background:#1b2940;border-radius:8px;font-size:12px}
+.hp{height:5px;background:#39465b;border-radius:5px;margin-top:7px;overflow:hidden}
+.hp div{height:100%;background:#37df8b}
+#queue{color:#b7c4d9;font-size:13px;line-height:1.8}
+#status{color:#55d8ff;font-size:13px;margin-top:8px}
+footer{text-align:center;padding:18px;color:#71819b;font-size:11px}
+</style>
+</head>
+<body>
+
+<header>
+<h1>⚔ BATTLE LIVE 3D</h1>
+<p>ENTRE NA ARENA. LUTE. CONQUISTE.</p>
+</header>
+
+<div id="game"></div>
+
+<div class="stats">
+<div class="stat"><strong id="alive">10</strong><span>NA ARENA</span></div>
+<div class="stat"><strong id="waiting">0</strong><span>NA FILA</span></div>
+<div class="stat"><strong id="round">1</strong><span>RODADA</span></div>
+</div>
+
+<div class="controls">
+<button onclick="startBattle()">⚔ INICIAR BATALHA</button>
+<button class="secondary" onclick="addPlayer()">➕ ADICIONAR JOGADOR</button>
+<button class="secondary" onclick="addBatch()">👥 +10 JOGADORES</button>
+<button class="danger" onclick="resetGame()">↻ REINICIAR</button>
+</div>
+
+<div class="panel">
+<h3>🏆 PARTICIPANTES</h3>
+<div id="players"></div>
+</div>
+
+<div class="panel">
+<h3>📥 FILA DE ENTRADA</h3>
+<div id="queue">Ninguém aguardando.</div>
+<div id="status">Arena pronta para começar!</div>
+</div>
+
+<footer>BATTLE LIVE 3D • PROJETO INDEPENDENTE</footer>
+
+<script type="module">
+import * as THREE from
+'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+
+const container=document.getElementById('game');
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x080d18);
+scene.fog=new THREE.Fog(0x080d18,22,45);
+
+const camera=new THREE.PerspectiveCamera(
+55,container.clientWidth/container.clientHeight,0.1,100
+);
+camera.position.set(0,14,18);
+camera.lookAt(0,0,0);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+renderer.setSize(container.clientWidth,container.clientHeight);
+renderer.shadowMap.enabled=true;
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0x9bdcff,0x172033,2));
+
+const light=new THREE.DirectionalLight(0xffffff,2);
+light.position.set(5,12,8);
+scene.add(light);
+
+const floor=new THREE.Mesh(
+new THREE.CircleGeometry(10,64),
+new THREE.MeshStandardMaterial({color:0x17243a,roughness:.8})
+);
+floor.rotation.x=-Math.PI/2;
+floor.position.y=-.1;
+scene.add(floor);
+
+const grid=new THREE.GridHelper(20,20,0x24628b,0x23354b);
+grid.position.y=0;
+scene.add(grid);
+
+const ring=new THREE.Mesh(
+new THREE.TorusGeometry(10,.12,8,100),
+new THREE.MeshStandardMaterial({color:0x25caff,emissive:0x0875aa})
+);
+ring.rotation.x=Math.PI/2;
+ring.position.y=.1;
+scene.add(ring);
+
+const players=[];
+const waiting=[];
+let nextId=1;
+let running=false;
+let round=1;
+let lastTime=0;
+let timer=0;
+
+const colors=[
+0xff455e,0x38bdf8,0xffbd35,0x9b72ff,0x37df8b,
+0xff7b35,0xf15bb5,0x61d5ce,0xe0e8ff,0x9ca3af
+];
+
+function makeCharacter(id,name){
+const group=new THREE.Group();
+const color=colors[(id-1)%colors.length];
+
+const material=new THREE.MeshStandardMaterial({
+color,roughness:.55
+});
+
+const body=new THREE.Mesh(
+new THREE.CapsuleGeometry(.42,.7,4,8),material
+);
+body.position.y=.85;
+body.castShadow=true;
+group.add(body);
+
+const head=new THREE.Mesh(
+new THREE.SphereGeometry(.34,16,16),
+new THREE.MeshStandardMaterial({color:0xffd0a5})
+);
+head.position.y=1.72;
+group.add(head);
+
+const eyeMat=new THREE.MeshBasicMaterial({color:0x111827});
+for(const x of [-.12,.12]){
+const eye=new THREE.Mesh(
+new THREE.SphereGeometry(.035,8,8),eyeMat
+);
+eye.position.set(x,1.76,.29);
+group.add(eye);
+}
+
+const base=new THREE.Mesh(
+new THREE.CylinderGeometry(.46,.46,.08,20),
+new THREE.MeshStandardMaterial({color:0x253750})
+);
+base.position.y=.08;
+group.add(base);
+
+const ringPlayer=new THREE.Mesh(
+new THREE.TorusGeometry(.48,.035,6,24),
+new THREE.MeshBasicMaterial({color})
+);
+ringPlayer.rotation.x=Math.PI/2;
+ringPlayer.position.y=.13;
+group.add(ringPlayer);
+
+scene.add(group);
+
+return {
+id,name,group,hp:100,alive:true,
+speed:1+Math.random()*.5,
+angle:Math.random()*Math.PI*2,
+target:null,
+color
+};
+}
+
+function positionPlayers(){
+const active=players.filter(p=>p.alive);
+active.forEach((p,i)=>{
+const angle=(i/Math.max(active.length,1))*Math.PI*2;
+const radius=active.length<=2?3.5:6;
+p.group.position.set(
+Math.cos(angle)*radius,0,Math.sin(angle)*radius
+);
+p.angle=angle;
+});
+}
+
+function addPlayer(name){
+const playerName=name||'Jogador '+nextId;
+const id=nextId++;
+
+if(players.filter(p=>p.alive).length<20){
+const p=makeCharacter(id,playerName);
+players.push(p);
+positionPlayers();
+}else{
+waiting.push({id,name:playerName});
+}
+updateUI();
+}
+
+function addBatch(){
+for(let i=0;i<10;i++) addPlayer();
+}
+
+function enterFromQueue(){
+while(waiting.length>0 &&
+players.filter(p=>p.alive).length<20){
+const item=waiting.shift();
+players.push(makeCharacter(item.id,item.name));
+}
+positionPlayers();
+}
+
+function startBattle(){
+if(running)return;
+if(players.filter(p=>p.alive).length<2){
+document.getElementById('status').textContent=
+"Adicione pelo menos 2 jogadores!";
+return;
+}
+running=true;
+document.getElementById('status').textContent=
+"⚔ BATALHA EM ANDAMENTO!";
+}
+
+function attack(){
+const active=players.filter(p=>p.alive);
+if(active.length<=1)return;
+
+active.forEach(p=>{
+const targets=active.filter(t=>t!==p);
+const target=targets[Math.floor(Math.random()*targets.length)];
+
+if(Math.random()<.65){
+target.hp=Math.max(0,target.hp-(8+Math.random()*15));
+target.group.rotation.z=.12;
+if(target.hp<=0){
+target.alive=false;
+scene.remove(target.group);
+enterFromQueue();
+}
+}
+});
+
+updateUI();
+
+const survivors=players.filter(p=>p.alive);
+if(survivors.length<=1){
+running=false;
+if(survivors.length===1){
+document.getElementById('status').textContent=
+'🏆 VENCEDOR: '+survivors[0].name;
+}else{
+document.getElementById('status').textContent=
+'Fim da rodada!';
+}
+round++;
+document.getElementById('round').textContent=round;
+}
+}
+
+function resetGame(){
+running=false;
+players.forEach(p=>scene.remove(p.group));
+players.length=0;
+waiting.length=0;
+nextId=1;
+round=1;
+timer=0;
+
+for(let i=0;i<10;i++) addPlayer();
+document.getElementById('round').textContent=round;
+document.getElementById('status').textContent=
+"Arena pronta para começar!";
+updateUI();
+}
+
+function updateUI(){
+const active=players.filter(p=>p.alive);
+document.getElementById('alive').textContent=active.length;
+document.getElementById('waiting').textContent=waiting.length;
+
+document.getElementById('players').innerHTML=
+players.map(p=>`
+<div class="player">
+${p.alive?'🟢':'💀'} ${p.name}
+<div class="hp"><div style="width:${p.hp}%"></div></div>
+</div>`).join('');
+
+document.getElementById('queue').textContent=
+waiting.length?
+waiting.map(p=>p.name).join(' • '):
+'Ninguém aguardando.';
+}
+
+function animate(time){
+requestAnimationFrame(animate);
+const delta=Math.min((time-lastTime)/1000,.05);
+lastTime=time;
+
+if(running){
+timer+=delta;
+players.filter(p=>p.alive).forEach(p=>{
+p.angle+=delta*.35*p.speed;
+const radius=3+Math.sin(time*.001+p.id)*2;
+p.group.position.x+=
+(Math.cos(p.angle)*radius-p.group.position.x)*delta*.8;
+p.group.position.z+=
+(Math.sin(p.angle)*radius-p.group.position.z)*delta*.8;
+p.group.rotation.y=p.angle+Math.PI/2;
+p.group.position.y=Math.abs(Math.sin(time*.004+p.id))*.08;
+});
+if(timer>2.5){
+timer=0;
+attack();
+}
+}else{
+players.filter(p=>p.alive).forEach(p=>{
+p.group.rotation.y+=delta*.2;
+});
+}
+
+renderer.render(scene,camera);
+}
+
+window.addEventListener('resize',()=>{
+camera.aspect=container.clientWidth/container.clientHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(container.clientWidth,container.clientHeight);
+});
+
+window.addPlayer=addPlayer;
+window.addBatch=addBatch;
+window.startBattle=startBattle;
+window.resetGame=resetGame;
+
+resetGame();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
