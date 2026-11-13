@@ -22,6 +22,7 @@ button{border:0;border-radius:9px;padding:12px;background:#a95c1c;color:white;fo
 </style>
 </head>
 <body>
+
 <div id="game"></div>
 <div id="hud">
  <div class="top">
@@ -140,57 +141,75 @@ for(let row=0;row<4;row++){
  arena.add(wall);
 }
 
- let audioCtx = null;
-let soundEnabled = true;
+// SISTEMA DE SOM
+let audioCtx=null;
+let soundEnabled=true;
 
 function initSound(){
+ try{
   if(!audioCtx){
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+   const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+   if(!AudioContextClass)return;
+   audioCtx=new AudioContextClass();
   }
-  if(audioCtx.state === "suspended") audioCtx.resume();
+  if(audioCtx.state==="suspended"){
+   audioCtx.resume();
+  }
+ }catch(error){
+  console.warn("Não foi possível iniciar o áudio:",error);
+ }
 }
 
 function playSound(type){
-  if(!soundEnabled || !audioCtx) return;
+ if(!soundEnabled||!audioCtx)return;
 
-  const now = audioCtx.currentTime;
+ const now=audioCtx.currentTime;
 
-  function tone(freq,endFreq,duration,volume,wave="sawtooth"){
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+ function tone(freq,endFreq,duration,volume,wave="sawtooth",delay=0){
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  const start=now+delay;
 
-    osc.type = wave;
-    osc.frequency.setValueAtTime(freq,now);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(1,endFreq),now+duration);
+  osc.type=wave;
+  osc.frequency.setValueAtTime(freq,start);
+  osc.frequency.exponentialRampToValueAtTime(
+   Math.max(1,endFreq),start+duration
+  );
 
-    gain.gain.setValueAtTime(volume,now);
-    gain.gain.exponentialRampToValueAtTime(0.001,now+duration);
+  gain.gain.setValueAtTime(.001,start);
+  gain.gain.linearRampToValueAtTime(volume,start+.015);
+  gain.gain.exponentialRampToValueAtTime(.001,start+duration);
 
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
 
-    osc.start(now);
-    osc.stop(now+duration);
-  }
+  osc.start(start);
+  osc.stop(start+duration+.02);
+ }
 
-  if(type === "sword"){
-    tone(900,180,0.18,0.12,"triangle");
-    tone(500,100,0.13,0.08);
-  }
+ if(type==="sword"){
+  tone(900,180,.18,.10,"triangle");
+  tone(500,100,.13,.06,"sawtooth",.025);
+ }
 
-  if(type === "hit"){
-    tone(130,45,0.22,0.22);
-  }
+ if(type==="hit"){
+  tone(130,45,.22,.16,"sawtooth");
+  tone(75,35,.16,.08,"triangle",.025);
+ }
 
-  if(type === "death"){
-    tone(180,55,0.65,0.18,"triangle");
-  }
+ if(type==="death"){
+  tone(180,55,.65,.15,"triangle");
+  tone(110,35,.75,.08,"sawtooth",.12);
+ }
 
-  if(type === "victory"){
-    tone(440,660,0.35,0.12,"triangle");
-    setTimeout(()=>tone(550,880,0.5,0.12,"triangle"),180);
-  }
+ if(type==="victory"){
+  tone(440,440,.22,.10,"triangle");
+  tone(554,554,.22,.10,"triangle",.20);
+  tone(659,659,.30,.12,"triangle",.40);
+  tone(880,880,.55,.13,"triangle",.65);
+ }
 }
+
 // MODELOS
 const loader=new THREE.GLTFLoader();
 let originalModel=null;
@@ -291,8 +310,6 @@ function makeFighter(id){
  const palette=armorPalettes[(id-1)%armorPalettes.length];
  const materials=[];
 
- // Cada guerreiro recebe cópias próprias dos materiais.
- // Mantém os detalhes originais e colore apenas partes selecionadas.
  let meshIndex=0;
 
  model.traverse(o=>{
@@ -309,11 +326,7 @@ function makeFighter(id){
 
    if(m.color){
     const label=(o.name+" "+(m.name||"")).toLowerCase();
-
-    // Partes com aparência de tecido recebem a cor principal.
     const cloth=/cloth|fabric|cape|robe|tunic|banner|leather|belt/.test(label);
-
-    // Materiais sem nome identificável recebem variações alternadas.
     const alternate=(meshIndex%3===0);
 
     if(cloth){
@@ -399,13 +412,17 @@ function resetBattle(){
  updateHUD();
 }
 
+// INICIAR BATALHA E ATIVAR SOM
 function startBattle(){
  if(!modelReady||running)return;
+
+ initSound();
 
  if(fighters.filter(f=>f.alive).length<2){
   addFighter();
   addFighter();
  }
+
  running=true;
  document.getElementById("message").textContent="⚔ A BATALHA COMEÇOU!";
 }
@@ -417,7 +434,10 @@ function nearestEnemy(f){
  for(const other of fighters){
   if(other===f||!other.alive)continue;
   const d=f.group.position.distanceTo(other.group.position);
-  if(d<distance){distance=d;target=other}
+  if(d<distance){
+   distance=d;
+   target=other;
+  }
  }
  return {target,distance};
 }
@@ -430,12 +450,14 @@ function eliminate(f){
  f.deathTime=0;
  f.deathStart=f.group.rotation.clone();
 
- // Interrompe as animações que mantêm o personagem de pé.
  f.mixer.stopAllAction();
  f.action=null;
  f.current="";
 
  dead++;
+
+ // SOM DE MORTE
+ playSound("death");
 
  document.getElementById("feed").textContent=
  "Guerreiro #"+f.id+" eliminado!";
@@ -455,19 +477,15 @@ function updateDead(f,dt){
  f.deathTime+=dt;
  const t=f.deathTime;
 
- // Queda para trás, até ficar deitado.
  const fall=Math.min(t/.75,1);
  const ease=1-Math.pow(1-fall,3);
 
- // Rotação em torno do eixo local X para cair de costas.
  f.group.rotation.x=f.deathStart.x+1.48*ease;
  f.group.rotation.z=f.deathStart.z;
  f.group.rotation.y=f.deathStart.y;
 
- // O centro do modelo desce para o chão enquanto cai.
  f.group.position.y=-.85*ease;
 
- // Fica deitado por 2 segundos após terminar a queda.
  if(t>2.75){
   const fade=Math.max(0,1-(t-2.75)/.9);
   f.materials.forEach(m=>{
@@ -516,7 +534,14 @@ function updateFighter(f,dt){
 
   if(f.attackTimer<=0){
    f.attackTimer=1+Math.random()*.4;
+
+   // SOM DE ESPADA
+   playSound("sword");
+
    if(Math.random()<.75){
+    // SOM DE IMPACTO
+    playSound("hit");
+
     damage(target,8+Math.random()*10);
    }
   }
@@ -534,12 +559,18 @@ function updateFighter(f,dt){
 function updateHUD(){
  document.getElementById("alive").textContent=
  fighters.filter(f=>f.alive).length;
+
  document.getElementById("dead").textContent=dead;
  document.getElementById("queueList").textContent=queue.length;
 
  const alive=fighters.filter(f=>f.alive);
+
  if(running&&alive.length===1&&queue.length===0){
   running=false;
+
+  // SOM DE VITÓRIA
+  playSound("victory");
+
   document.getElementById("message").textContent=
    "🏆 GUERREIRO #"+alive[0].id+" VENCEU!";
  }
