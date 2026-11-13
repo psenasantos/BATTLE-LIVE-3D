@@ -71,9 +71,11 @@ const torchLight=new THREE.PointLight(0xff7028,45,60);
 torchLight.position.set(0,9,0);
 scene.add(torchLight);
 
-const material=(c,m=0,r=.7)=>new THREE.MeshStandardMaterial({
- color:c,metalness:m,roughness:r
-});
+function material(c,m=0,r=.7){
+ return new THREE.MeshStandardMaterial({
+  color:c,metalness:m,roughness:r
+ });
+}
 
 function box(parent,w,h,d,mat,x,y,z){
  const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
@@ -170,6 +172,7 @@ function chooseAnimation(patterns){
 
 function playAnimation(f,name){
  if(!f.mixer)return;
+
  const patterns={
   idle:[/idle/i,/stand/i],
   walk:[/walk/i],
@@ -178,14 +181,22 @@ function playAnimation(f,name){
   hit:[/hit/i,/damage/i],
   death:[/death/i,/die/i]
  };
+
  const clip=chooseAnimation(patterns[name]||[]);
  if(!clip)return;
+
  if(f.action&&f.current===clip.name)return;
+
  if(f.action)f.action.fadeOut(.15);
+
  const action=f.mixer.clipAction(clip);
  action.reset();
- action.setLoop(name==="death"?THREE.LoopOnce:THREE.LoopRepeat);
+ action.setLoop(
+  name==="death"?THREE.LoopOnce:THREE.LoopRepeat
+ );
+
  if(name==="death")action.clampWhenFinished=true;
+
  action.fadeIn(.15).play();
  f.action=action;
  f.current=clip.name;
@@ -199,16 +210,18 @@ loader.load("knight.glb",gltf=>{
   if(o.isMesh){
    o.castShadow=true;
    o.receiveShadow=true;
-   if(o.material)o.material=o.material.clone();
   }
  });
 
  modelReady=true;
+
  document.getElementById("message").textContent=
  "MODELO 3D CARREGADO!";
+
  resetBattle();
+
 },undefined,error=>{
- console.error(error);
+ console.error("Erro ao carregar knight.glb:",error);
  document.getElementById("message").textContent=
  "ERRO AO CARREGAR knight.glb";
 });
@@ -226,28 +239,45 @@ function makeFighter(id){
  bounds.getSize(size);
 
  const height=Math.max(size.y,.01);
- const scale=2.65/height;
+ const variation=.94+(id%5)*.03;
+ const scale=2.65/height*variation;
  model.scale.setScalar(scale);
 
  const scaledBounds=new THREE.Box3().setFromObject(model);
  model.position.y-=scaledBounds.min.y;
 
  const color=colors[(id-1)%colors.length];
+ const materials=[];
 
+ // Materiais exclusivos de cada guerreiro
  model.traverse(o=>{
   if(!o.isMesh||!o.material)return;
-  const mats=Array.isArray(o.material)?o.material:[o.material];
-  mats.forEach(m=>{
-   if(m.color){
-    const variation=new THREE.Color(color);
-    m.color.multiply(variation);
+
+  o.castShadow=true;
+  o.receiveShadow=true;
+
+  const original=Array.isArray(o.material)
+   ?o.material
+   :[o.material];
+
+  const cloned=original.map(m=>{
+   const mat=m.clone();
+
+   if(mat.color){
+    mat.color.lerp(new THREE.Color(color),.48);
    }
+
+   materials.push(mat);
+   return mat;
   });
+
+  o.material=Array.isArray(o.material)?cloned:cloned[0];
  });
 
  scene.add(root);
 
  const mixer=new THREE.AnimationMixer(model);
+
  const f={
   id,group:root,model,mixer,
   hp:100,alive:true,
@@ -255,7 +285,9 @@ function makeFighter(id){
   attackTimer:Math.random(),
   phase:Math.random()*6,
   action:null,current:"",
-  color
+  color,materials,
+  deathTime:0,
+  removed:false
  };
 
  playAnimation(f,"idle");
@@ -284,32 +316,49 @@ function addFighter(){
  }else{
   queue.push(f);
  }
+
  updateHUD();
 }
 
 function resetBattle(){
  if(!modelReady)return;
+
  running=false;
- fighters.forEach(f=>scene.remove(f.group));
- queue.forEach(f=>scene.remove(f.group));
+
+ fighters.forEach(f=>{
+  scene.remove(f.group);
+  f.materials.forEach(m=>m.dispose());
+ });
+
+ queue.forEach(f=>{
+  scene.remove(f.group);
+  f.materials.forEach(m=>m.dispose());
+ });
+
  fighters.length=0;
  queue.length=0;
  dead=0;
  nextId=1;
+
  for(let i=0;i<10;i++)addFighter();
+
+ document.getElementById("feed").textContent="";
  document.getElementById("message").textContent=
  "PREPARE-SE PARA A BATALHA";
+
  updateHUD();
 }
 
 function startBattle(){
- if(!modelReady)return;
- if(running)return;
+ if(!modelReady||running)return;
+
  if(fighters.filter(f=>f.alive).length<2){
   addFighter();
   addFighter();
  }
+
  running=true;
+
  document.getElementById("message").textContent=
  "⚔ A BATALHA COMEÇOU!";
 }
@@ -317,19 +366,36 @@ function startBattle(){
 function nearestEnemy(f){
  let target=null;
  let distance=Infinity;
+
  for(const other of fighters){
   if(other===f||!other.alive)continue;
+
   const d=f.group.position.distanceTo(other.group.position);
-  if(d<distance){distance=d;target=other}
+
+  if(d<distance){
+   distance=d;
+   target=other;
+  }
  }
+
  return {target,distance};
 }
 
+// ELIMINAÇÃO
 function eliminate(f){
  if(!f.alive)return;
+
  f.alive=false;
- dead++;
+ f.deathTime=0;
+
+ f.mixer.stopAllAction();
+ f.action=null;
+ f.current="";
+
  playAnimation(f,"death");
+
+ dead++;
+
  document.getElementById("feed").textContent=
  "Guerreiro #"+f.id+" eliminado!";
 
@@ -338,21 +404,63 @@ function eliminate(f){
   placeFighter(next);
   fighters.push(next);
  }
+
  updateHUD();
+}
+
+// ANIMAÇÃO DE MORTE
+function updateDead(f,dt){
+ if(f.removed)return;
+
+ f.deathTime+=dt;
+ const t=f.deathTime;
+
+ // Inclinação da queda
+ const fall=Math.min(t/.85,1);
+ const ease=1-Math.pow(1-fall,3);
+
+ f.group.rotation.z=-1.35*ease;
+ f.group.rotation.x=.12*ease;
+ f.group.position.y=-.12*ease;
+
+ // Atualiza a animação de morte do modelo
+ f.mixer.update(dt);
+
+ // Desaparecimento gradual
+ if(t>1.8){
+  const fade=Math.max(0,1-(t-1.8)/1.2);
+
+  f.materials.forEach(m=>{
+   m.transparent=true;
+   m.opacity=fade;
+   m.depthWrite=fade>.5;
+  });
+ }
+
+ // Retira da arena
+ if(t>=3){
+  scene.remove(f.group);
+  f.removed=true;
+  f.materials.forEach(m=>m.dispose());
+ }
 }
 
 function damage(f,amount){
  if(!f.alive)return;
+
  f.hp=Math.max(0,f.hp-amount);
+
  if(f.hp<=0)eliminate(f);
 }
 
+// COMBATE
 function updateFighter(f,dt){
  if(!f.alive)return;
 
  const p=f.group.position;
  const result=nearestEnemy(f);
  const target=result.target;
+
  if(!target)return;
 
  const tp=target.group.position;
@@ -367,13 +475,16 @@ function updateFighter(f,dt){
   const step=Math.min(distance-1.5,f.speed*dt);
   p.x+=Math.sin(angle)*step;
   p.z+=Math.cos(angle)*step;
+
   playAnimation(f,distance>5?"run":"walk");
+
  }else{
   playAnimation(f,"attack");
   f.attackTimer-=dt;
 
   if(f.attackTimer<=0){
    f.attackTimer=1+Math.random()*.4;
+
    if(Math.random()<.75){
     damage(target,8+Math.random()*10);
    }
@@ -381,6 +492,7 @@ function updateFighter(f,dt){
  }
 
  const radius=Math.hypot(p.x,p.z);
+
  if(radius>12){
   p.x*=12/radius;
   p.z*=12/radius;
@@ -392,46 +504,67 @@ function updateFighter(f,dt){
 function updateHUD(){
  document.getElementById("alive").textContent=
  fighters.filter(f=>f.alive).length;
+
  document.getElementById("dead").textContent=dead;
  document.getElementById("queueList").textContent=queue.length;
+
  const alive=fighters.filter(f=>f.alive);
+
  if(running&&alive.length===1&&queue.length===0){
   running=false;
+
   document.getElementById("message").textContent=
    "🏆 GUERREIRO #"+alive[0].id+" VENCEU!";
  }
 }
 
+// CÂMERA
 function updateCamera(dt){
  const alive=fighters.filter(f=>f.alive);
  if(!alive.length)return;
 
  let x=0,z=0;
- alive.forEach(f=>{x+=f.group.position.x;z+=f.group.position.z});
+
+ alive.forEach(f=>{
+  x+=f.group.position.x;
+  z+=f.group.position.z;
+ });
+
  x/=alive.length;
  z/=alive.length;
 
  let spread=0;
+
  alive.forEach(f=>{
-  spread=Math.max(spread,
-   f.group.position.distanceTo(new THREE.Vector3(x,0,z)));
+  spread=Math.max(
+   spread,
+   f.group.position.distanceTo(new THREE.Vector3(x,0,z))
+  );
  });
 
  const d=THREE.MathUtils.clamp(19+spread*1.2,19,36);
  const desired=new THREE.Vector3(x,d*.75,z+d);
+
  camera.position.lerp(desired,1-Math.exp(-dt*1.7));
  camera.lookAt(x,1,z);
 }
 
+// LOOP PRINCIPAL
 function animate(now){
  requestAnimationFrame(animate);
+
  const dt=Math.min((now-lastTime)/1000||0,.04);
  lastTime=now;
 
- if(running){
-  fighters.forEach(f=>updateFighter(f,dt));
-  updateHUD();
- }
+ fighters.forEach(f=>{
+  if(f.alive){
+   if(running)updateFighter(f,dt);
+  }else{
+   updateDead(f,dt);
+  }
+ });
+
+ if(running)updateHUD();
 
  updateCamera(dt);
  renderer.render(scene,camera);
