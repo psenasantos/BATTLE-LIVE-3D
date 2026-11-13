@@ -72,9 +72,7 @@ torchLight.position.set(0,9,0);
 scene.add(torchLight);
 
 function material(c,m=0,r=.7){
- return new THREE.MeshStandardMaterial({
-  color:c,metalness:m,roughness:r
- });
+ return new THREE.MeshStandardMaterial({color:c,metalness:m,roughness:r});
 }
 
 function box(parent,w,h,d,mat,x,y,z){
@@ -86,10 +84,9 @@ function box(parent,w,h,d,mat,x,y,z){
  return o;
 }
 
-// CHÃO E ARENA
+// ARENA
 const ground=new THREE.Mesh(
- new THREE.PlaneGeometry(200,200),
- material(0x111722)
+ new THREE.PlaneGeometry(200,200),material(0x111722)
 );
 ground.rotation.x=-Math.PI/2;
 ground.position.y=-.6;
@@ -100,15 +97,13 @@ const arena=new THREE.Group();
 scene.add(arena);
 
 const base=new THREE.Mesh(
- new THREE.CylinderGeometry(14,15,1,64),
- material(0x242b37,.4)
+ new THREE.CylinderGeometry(14,15,1,64),material(0x242b37,.4)
 );
 base.position.y=-.1;
 arena.add(base);
 
 const floor=new THREE.Mesh(
- new THREE.CylinderGeometry(13.6,13.6,.2,64),
- material(0x514638,.1)
+ new THREE.CylinderGeometry(13.6,13.6,.2,64),material(0x514638,.1)
 );
 floor.position.y=.48;
 floor.receiveShadow=true;
@@ -145,7 +140,7 @@ for(let row=0;row<4;row++){
  arena.add(wall);
 }
 
-// MODELO 3D
+// MODELOS
 const loader=new THREE.GLTFLoader();
 let originalModel=null;
 let animationClips=[];
@@ -158,10 +153,15 @@ let dead=0;
 let running=false;
 let lastTime=0;
 
-const colors=[
- 0xffffff,0x9c3030,0x285bb0,0x25805a,
- 0xb17a29,0x713e99,0x222222,0x9b542c,
- 0x29929a,0x777777
+const armorPalettes=[
+ {main:0x2461a0,metal:0xc6d5e5,cloth:0x183451},
+ {main:0x9b2525,metal:0xb9b9b9,cloth:0x351515},
+ {main:0xb58a24,metal:0xf1d78a,cloth:0x574018},
+ {main:0x247044,metal:0xb7a06a,cloth:0x183b2a},
+ {main:0x713a91,metal:0xc3c0d4,cloth:0x321b43},
+ {main:0x282b32,metal:0x8c929b,cloth:0x17191e},
+ {main:0x9a582a,metal:0xd6b48c,cloth:0x4c2d1d},
+ {main:0x197e83,metal:0xb6d2d0,cloth:0x164449}
 ];
 
 function chooseAnimation(patterns){
@@ -184,20 +184,16 @@ function playAnimation(f,name){
 
  const clip=chooseAnimation(patterns[name]||[]);
  if(!clip)return;
-
  if(f.action&&f.current===clip.name)return;
 
- if(f.action)f.action.fadeOut(.15);
+ if(f.action)f.action.fadeOut(.12);
 
  const action=f.mixer.clipAction(clip);
  action.reset();
- action.setLoop(
-  name==="death"?THREE.LoopOnce:THREE.LoopRepeat
- );
-
+ action.setLoop(name==="death"?THREE.LoopOnce:THREE.LoopRepeat);
  if(name==="death")action.clampWhenFinished=true;
+ action.fadeIn(.12).play();
 
- action.fadeIn(.15).play();
  f.action=action;
  f.current=clip.name;
 }
@@ -214,19 +210,15 @@ loader.load("knight.glb",gltf=>{
  });
 
  modelReady=true;
-
- document.getElementById("message").textContent=
- "MODELO 3D CARREGADO!";
-
+ document.getElementById("message").textContent="MODELO 3D CARREGADO!";
  resetBattle();
 
 },undefined,error=>{
- console.error("Erro ao carregar knight.glb:",error);
- document.getElementById("message").textContent=
- "ERRO AO CARREGAR knight.glb";
+ console.error(error);
+ document.getElementById("message").textContent="ERRO AO CARREGAR knight.glb";
 });
 
-// CRIA GUERREIROS
+// CORES INDIVIDUAIS
 function makeFighter(id){
  if(!modelReady)return null;
 
@@ -239,55 +231,68 @@ function makeFighter(id){
  bounds.getSize(size);
 
  const height=Math.max(size.y,.01);
- const variation=.94+(id%5)*.03;
- const scale=2.65/height*variation;
+ const scale=2.65/height;
  model.scale.setScalar(scale);
 
  const scaledBounds=new THREE.Box3().setFromObject(model);
  model.position.y-=scaledBounds.min.y;
 
- const color=colors[(id-1)%colors.length];
+ const palette=armorPalettes[(id-1)%armorPalettes.length];
  const materials=[];
 
- // Materiais exclusivos de cada guerreiro
+ // Cada guerreiro recebe cópias próprias dos materiais.
+ // Mantém os detalhes originais e colore apenas partes selecionadas.
+ let meshIndex=0;
+
  model.traverse(o=>{
   if(!o.isMesh||!o.material)return;
 
   o.castShadow=true;
   o.receiveShadow=true;
 
-  const original=Array.isArray(o.material)
-   ?o.material
-   :[o.material];
+  const originals=Array.isArray(o.material)?o.material:[o.material];
 
-  const cloned=original.map(m=>{
-   const mat=m.clone();
+  const copies=originals.map((source,index)=>{
+   const m=source.clone();
+   materials.push(m);
 
-   if(mat.color){
-    mat.color.lerp(new THREE.Color(color),.48);
+   if(m.color){
+    const label=(o.name+" "+(m.name||"")).toLowerCase();
+
+    // Partes com aparência de tecido recebem a cor principal.
+    const cloth=/cloth|fabric|cape|robe|tunic|banner|leather|belt/.test(label);
+
+    // Materiais sem nome identificável recebem variações alternadas.
+    const alternate=(meshIndex%3===0);
+
+    if(cloth){
+     m.color.setHex(palette.cloth);
+    }else if(alternate){
+     m.color.setHex(palette.main);
+    }else{
+     m.color.lerp(new THREE.Color(palette.metal),.38);
+    }
    }
-
-   materials.push(mat);
-   return mat;
+   return m;
   });
 
-  o.material=Array.isArray(o.material)?cloned:cloned[0];
+  meshIndex++;
+  o.material=Array.isArray(o.material)?copies:copies[0];
  });
 
  scene.add(root);
 
  const mixer=new THREE.AnimationMixer(model);
-
  const f={
   id,group:root,model,mixer,
   hp:100,alive:true,
   speed:1.5+Math.random()*.4,
   attackTimer:Math.random(),
-  phase:Math.random()*6,
   action:null,current:"",
-  color,materials,
+  materials,
   deathTime:0,
-  removed:false
+  removed:false,
+  deathStart:null
  };
 
  playAnimation(f,"idle");
@@ -302,8 +307,7 @@ function placeFighter(f){
 
 function addFighter(){
  if(!modelReady){
-  document.getElementById("message").textContent=
-   "AGUARDE O MODELO 3D CARREGAR";
+  document.getElementById("message").textContent="AGUARDE O MODELO 3D CARREGAR";
   return;
  }
 
@@ -316,24 +320,21 @@ function addFighter(){
  }else{
   queue.push(f);
  }
-
  updateHUD();
+}
+
+function disposeFighter(f){
+ scene.remove(f.group);
+ f.materials.forEach(m=>m.dispose());
+ f.removed=true;
 }
 
 function resetBattle(){
  if(!modelReady)return;
 
  running=false;
-
- fighters.forEach(f=>{
-  scene.remove(f.group);
-  f.materials.forEach(m=>m.dispose());
- });
-
- queue.forEach(f=>{
-  scene.remove(f.group);
-  f.materials.forEach(m=>m.dispose());
- });
+ fighters.forEach(disposeFighter);
+ queue.forEach(disposeFighter);
 
  fighters.length=0;
  queue.length=0;
@@ -343,9 +344,7 @@ function resetBattle(){
  for(let i=0;i<10;i++)addFighter();
 
  document.getElementById("feed").textContent="";
- document.getElementById("message").textContent=
- "PREPARE-SE PARA A BATALHA";
-
+ document.getElementById("message").textContent="PREPARE-SE PARA A BATALHA";
  updateHUD();
 }
 
@@ -356,11 +355,8 @@ function startBattle(){
   addFighter();
   addFighter();
  }
-
  running=true;
-
- document.getElementById("message").textContent=
- "⚔ A BATALHA COMEÇOU!";
+ document.getElementById("message").textContent="⚔ A BATALHA COMEÇOU!";
 }
 
 function nearestEnemy(f){
@@ -369,30 +365,24 @@ function nearestEnemy(f){
 
  for(const other of fighters){
   if(other===f||!other.alive)continue;
-
   const d=f.group.position.distanceTo(other.group.position);
-
-  if(d<distance){
-   distance=d;
-   target=other;
-  }
+  if(d<distance){distance=d;target=other}
  }
-
  return {target,distance};
 }
 
-// ELIMINAÇÃO
+// MORTE: CAIR DE COSTAS E DESAPARECER
 function eliminate(f){
  if(!f.alive)return;
 
  f.alive=false;
  f.deathTime=0;
+ f.deathStart=f.group.rotation.clone();
 
+ // Interrompe as animações que mantêm o personagem de pé.
  f.mixer.stopAllAction();
  f.action=null;
  f.current="";
-
- playAnimation(f,"death");
 
  dead++;
 
@@ -408,28 +398,27 @@ function eliminate(f){
  updateHUD();
 }
 
-// ANIMAÇÃO DE MORTE
 function updateDead(f,dt){
  if(f.removed)return;
 
  f.deathTime+=dt;
  const t=f.deathTime;
 
- // Inclinação da queda
- const fall=Math.min(t/.85,1);
+ // Queda para trás, até ficar deitado.
+ const fall=Math.min(t/.75,1);
  const ease=1-Math.pow(1-fall,3);
 
- f.group.rotation.z=-1.35*ease;
- f.group.rotation.x=.12*ease;
- f.group.position.y=-.12*ease;
+ // Rotação em torno do eixo local X para cair de costas.
+ f.group.rotation.x=f.deathStart.x+1.48*ease;
+ f.group.rotation.z=f.deathStart.z;
+ f.group.rotation.y=f.deathStart.y;
 
- // Atualiza a animação de morte do modelo
- f.mixer.update(dt);
+ // O centro do modelo desce para o chão enquanto cai.
+ f.group.position.y=-.85*ease;
 
- // Desaparecimento gradual
- if(t>1.8){
-  const fade=Math.max(0,1-(t-1.8)/1.2);
-
+ // Fica deitado por 2 segundos após terminar a queda.
+ if(t>2.75){
+  const fade=Math.max(0,1-(t-2.75)/.9);
   f.materials.forEach(m=>{
    m.transparent=true;
    m.opacity=fade;
@@ -437,19 +426,14 @@ function updateDead(f,dt){
   });
  }
 
- // Retira da arena
- if(t>=3){
-  scene.remove(f.group);
-  f.removed=true;
-  f.materials.forEach(m=>m.dispose());
+ if(t>=3.65){
+  disposeFighter(f);
  }
 }
 
 function damage(f,amount){
  if(!f.alive)return;
-
  f.hp=Math.max(0,f.hp-amount);
-
  if(f.hp<=0)eliminate(f);
 }
 
@@ -460,7 +444,6 @@ function updateFighter(f,dt){
  const p=f.group.position;
  const result=nearestEnemy(f);
  const target=result.target;
-
  if(!target)return;
 
  const tp=target.group.position;
@@ -475,16 +458,13 @@ function updateFighter(f,dt){
   const step=Math.min(distance-1.5,f.speed*dt);
   p.x+=Math.sin(angle)*step;
   p.z+=Math.cos(angle)*step;
-
   playAnimation(f,distance>5?"run":"walk");
-
  }else{
   playAnimation(f,"attack");
   f.attackTimer-=dt;
 
   if(f.attackTimer<=0){
    f.attackTimer=1+Math.random()*.4;
-
    if(Math.random()<.75){
     damage(target,8+Math.random()*10);
    }
@@ -492,7 +472,6 @@ function updateFighter(f,dt){
  }
 
  const radius=Math.hypot(p.x,p.z);
-
  if(radius>12){
   p.x*=12/radius;
   p.z*=12/radius;
@@ -504,15 +483,12 @@ function updateFighter(f,dt){
 function updateHUD(){
  document.getElementById("alive").textContent=
  fighters.filter(f=>f.alive).length;
-
  document.getElementById("dead").textContent=dead;
  document.getElementById("queueList").textContent=queue.length;
 
  const alive=fighters.filter(f=>f.alive);
-
  if(running&&alive.length===1&&queue.length===0){
   running=false;
-
   document.getElementById("message").textContent=
    "🏆 GUERREIRO #"+alive[0].id+" VENCEU!";
  }
@@ -524,32 +500,26 @@ function updateCamera(dt){
  if(!alive.length)return;
 
  let x=0,z=0;
-
  alive.forEach(f=>{
   x+=f.group.position.x;
   z+=f.group.position.z;
  });
-
  x/=alive.length;
  z/=alive.length;
 
  let spread=0;
-
  alive.forEach(f=>{
-  spread=Math.max(
-   spread,
-   f.group.position.distanceTo(new THREE.Vector3(x,0,z))
-  );
+  spread=Math.max(spread,
+   f.group.position.distanceTo(new THREE.Vector3(x,0,z)));
  });
 
  const d=THREE.MathUtils.clamp(19+spread*1.2,19,36);
  const desired=new THREE.Vector3(x,d*.75,z+d);
-
  camera.position.lerp(desired,1-Math.exp(-dt*1.7));
  camera.lookAt(x,1,z);
 }
 
-// LOOP PRINCIPAL
+// LOOP
 function animate(now){
  requestAnimationFrame(animate);
 
