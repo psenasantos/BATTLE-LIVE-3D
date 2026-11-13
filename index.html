@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -6,228 +7,277 @@
 <title>BATTLE LIVE 3D</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#080b12;color:white;font-family:Arial,sans-serif;overflow:hidden}
+body{margin:0;background:#080b12;color:white;font-family:Arial;overflow:hidden}
 #game{position:fixed;inset:0}
 #hud{position:fixed;inset:0;pointer-events:none}
-.top{display:flex;justify-content:space-between;align-items:center;padding:14px}
-.logo{font-size:22px;font-weight:900;letter-spacing:2px;color:#ffbd54;text-shadow:0 0 15px #ff7600}
-.stat{background:#101827dd;border:1px solid #35445b;padding:9px 13px;border-radius:10px;font-size:13px}
-#message{position:absolute;top:78px;width:100%;text-align:center;font-weight:bold;font-size:19px;text-shadow:0 2px 8px black}
-#bottom{position:absolute;bottom:15px;left:0;right:0;display:flex;justify-content:center;gap:8px;pointer-events:auto;flex-wrap:wrap;padding:0 8px}
-button{border:0;border-radius:10px;padding:13px 17px;font-weight:bold;color:white;background:#b76a19}
-button.secondary{background:#26344a}
-button:active{transform:scale(.96)}
-#feed{position:absolute;left:12px;bottom:85px;font-size:12px;color:#e6d5b8;text-shadow:0 1px 4px black}
-#queue{position:absolute;right:12px;top:80px;background:#101827cc;padding:10px;border-radius:10px;font-size:12px;max-width:130px}
-#queue strong{color:#ffbd54}
-@media(max-width:600px){
-.logo{font-size:17px}
-.stat{font-size:11px;padding:8px}
-button{padding:12px;font-size:12px}
-}
+.top{display:flex;justify-content:space-between;padding:12px;gap:6px}
+.logo{font-weight:900;color:#ffc15a;font-size:19px}
+.stat,#queue{background:#111b2bdf;border:1px solid #45536a;padding:9px;border-radius:9px;font-size:12px}
+#message{position:absolute;top:72px;width:100%;text-align:center;font-weight:bold;text-shadow:0 2px 5px black}
+#queue{position:absolute;right:10px;top:115px}
+#feed{position:absolute;bottom:85px;left:12px;font-size:12px}
+#bottom{position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:7px;pointer-events:auto;flex-wrap:wrap}
+button{border:0;border-radius:9px;padding:12px;background:#a95c1c;color:white;font-weight:bold}
+.secondary{background:#263750}
 </style>
 </head>
 <body>
 <div id="game"></div>
 <div id="hud">
  <div class="top">
-  <div class="logo">⚔ BATTLE LIVE</div>
+  <div class="logo">⚔ BATTLE LIVE 3D</div>
   <div class="stat">VIVOS: <b id="alive">0</b></div>
   <div class="stat">ELIMINADOS: <b id="dead">0</b></div>
  </div>
- <div id="message">A BATALHA VAI COMEÇAR</div>
- <div id="queue"><strong>PRÓXIMOS</strong><div id="queueList">Fila vazia</div></div>
+ <div id="message">PREPARE-SE PARA A BATALHA</div>
+ <div id="queue">PRÓXIMOS: <b id="queueList">0</b></div>
  <div id="feed"></div>
  <div id="bottom">
-  <button onclick="addFighter()">+ ADICIONAR GUERREIRO</button>
-  <button class="secondary" onclick="startBattle()">INICIAR BATALHA</button>
+  <button onclick="addFighter()">+ GUERREIRO</button>
+  <button class="secondary" onclick="startBattle()">INICIAR</button>
   <button class="secondary" onclick="resetBattle()">REINICIAR</button>
  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+
 <script>
 const scene=new THREE.Scene();
-scene.background=new THREE.Color(0x080c16);
-scene.fog=new THREE.FogExp2(0x080c16,.012);
+scene.background=new THREE.Color(0x090e19);
+scene.fog=new THREE.FogExp2(0x090e19,.012);
 
 const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,300);
-camera.position.set(0,22,30);
+camera.position.set(0,20,27);
 
 const renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));
 renderer.shadowMap.enabled=true;
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 renderer.outputEncoding=THREE.sRGBEncoding;
 document.getElementById("game").appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0x9eb8dc,0x21140c,1.5));
+scene.add(new THREE.HemisphereLight(0xb7c9e8,0x29202a,2));
 
-const sun=new THREE.DirectionalLight(0xffd6a0,2.2);
+const sun=new THREE.DirectionalLight(0xffd7a0,2.5);
 sun.position.set(-12,25,10);
 sun.castShadow=true;
 sun.shadow.mapSize.set(2048,2048);
 scene.add(sun);
 
-const fill=new THREE.PointLight(0xff681c,35,55);
-fill.position.set(0,9,0);
-scene.add(fill);
+const torchLight=new THREE.PointLight(0xff7028,45,60);
+torchLight.position.set(0,9,0);
+scene.add(torchLight);
 
-const mat=(color,metal=0,rough=.6)=>new THREE.MeshStandardMaterial({
- color,metalness:metal,roughness:rough
+const material=(c,m=0,r=.7)=>new THREE.MeshStandardMaterial({
+ color:c,metalness:m,roughness:r
 });
 
-const stone=mat(0x343b49,.35);
-const darkStone=mat(0x171e2a,.3);
-const gold=mat(0xc58b35,.7,.3);
-const floorMat=mat(0x34302b,.15,.9);
-
-function box(parent,w,h,d,material,x,y,z){
- const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
- m.position.set(x,y,z);
- m.castShadow=true;m.receiveShadow=true;
- parent.add(m);return m;
+function box(parent,w,h,d,mat,x,y,z){
+ const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
+ o.position.set(x,y,z);
+ o.castShadow=true;
+ o.receiveShadow=true;
+ parent.add(o);
+ return o;
 }
 
-const ground=new THREE.Mesh(new THREE.PlaneGeometry(180,180),mat(0x111722));
+// CHÃO E ARENA
+const ground=new THREE.Mesh(
+ new THREE.PlaneGeometry(200,200),
+ material(0x111722)
+);
 ground.rotation.x=-Math.PI/2;
-ground.position.y=-.5;
+ground.position.y=-.6;
 ground.receiveShadow=true;
 scene.add(ground);
 
 const arena=new THREE.Group();
 scene.add(arena);
 
-const base=new THREE.Mesh(new THREE.CylinderGeometry(13,14,1,64),darkStone);
-base.position.y=-.15;base.receiveShadow=true;arena.add(base);
+const base=new THREE.Mesh(
+ new THREE.CylinderGeometry(14,15,1,64),
+ material(0x242b37,.4)
+);
+base.position.y=-.1;
+arena.add(base);
 
-const floor=new THREE.Mesh(new THREE.CylinderGeometry(12.7,12.7,.18,64),floorMat);
-floor.position.y=.42;floor.receiveShadow=true;arena.add(floor);
+const floor=new THREE.Mesh(
+ new THREE.CylinderGeometry(13.6,13.6,.2,64),
+ material(0x514638,.1)
+);
+floor.position.y=.48;
+floor.receiveShadow=true;
+arena.add(floor);
 
 for(let i=0;i<3;i++){
  const ring=new THREE.Mesh(
-  new THREE.TorusGeometry(11.8-i*.5,.055,8,100),
-  mat(i===0?0xb77b30:0x77716a,.6)
+  new THREE.TorusGeometry(12-i*.45,.06,8,100),
+  material(0xc18b42,.7)
  );
  ring.rotation.x=Math.PI/2;
- ring.position.y=.53+i*.005;
+ ring.position.y=.6+i*.01;
  arena.add(ring);
 }
 
-for(let i=0;i<16;i++){
- const a=i/16*Math.PI*2;
- const x=Math.cos(a)*14;
- const z=Math.sin(a)*14;
- const pillar=box(arena,1.2,5,1.2,stone,x,2,z);
- const cap=box(arena,1.6,.35,1.6,gold,x,4.65,z);
+const stone=material(0x343b49,.3);
+const gold=material(0xc18b42,.7);
+
+for(let i=0;i<20;i++){
+ const a=i/20*Math.PI*2;
+ const x=Math.cos(a)*15;
+ const z=Math.sin(a)*15;
+ box(arena,1.3,5.5,1.3,stone,x,2.5,z);
+ box(arena,1.7,.3,1.7,gold,x,5.25,z);
 }
 
 for(let row=0;row<4;row++){
- const r=15+row*1.1;
+ const radius=16+row*1.2;
  const wall=new THREE.Mesh(
-  new THREE.CylinderGeometry(r+1,r,1.3,64,1,true),
-  darkStone
+  new THREE.CylinderGeometry(radius+1,radius,1.2,64,1,true),
+  material(0x171e2a,.2)
  );
  wall.position.y=row*.8+1;
  arena.add(wall);
 }
 
+// MODELO 3D
+const loader=new THREE.GLTFLoader();
+let originalModel=null;
+let animationClips=[];
+let modelReady=false;
+
 const fighters=[];
 const queue=[];
-let running=false;
 let nextId=1;
 let dead=0;
+let running=false;
 let lastTime=0;
 
 const colors=[
- 0x9d2929,0x244d9b,0x25815c,0x8a4ca2,
- 0xb77a24,0x287c91,0x777777,0x9b4d25
+ 0xffffff,0x9c3030,0x285bb0,0x25805a,
+ 0xb17a29,0x713e99,0x222222,0x9b542c,
+ 0x29929a,0x777777
 ];
 
+function chooseAnimation(patterns){
+ return animationClips.find(c=>
+  patterns.some(p=>p.test(c.name))
+ );
+}
+
+function playAnimation(f,name){
+ if(!f.mixer)return;
+ const patterns={
+  idle:[/idle/i,/stand/i],
+  walk:[/walk/i],
+  run:[/run/i],
+  attack:[/attack/i,/slash/i,/sword/i],
+  hit:[/hit/i,/damage/i],
+  death:[/death/i,/die/i]
+ };
+ const clip=chooseAnimation(patterns[name]||[]);
+ if(!clip)return;
+ if(f.action&&f.current===clip.name)return;
+ if(f.action)f.action.fadeOut(.15);
+ const action=f.mixer.clipAction(clip);
+ action.reset();
+ action.setLoop(name==="death"?THREE.LoopOnce:THREE.LoopRepeat);
+ if(name==="death")action.clampWhenFinished=true;
+ action.fadeIn(.15).play();
+ f.action=action;
+ f.current=clip.name;
+}
+
+loader.load("knight.glb",gltf=>{
+ originalModel=gltf.scene;
+ animationClips=gltf.animations||[];
+
+ originalModel.traverse(o=>{
+  if(o.isMesh){
+   o.castShadow=true;
+   o.receiveShadow=true;
+   if(o.material)o.material=o.material.clone();
+  }
+ });
+
+ modelReady=true;
+ document.getElementById("message").textContent=
+ "MODELO 3D CARREGADO!";
+ resetBattle();
+},undefined,error=>{
+ console.error(error);
+ document.getElementById("message").textContent=
+ "ERRO AO CARREGAR knight.glb";
+});
+
+// CRIA GUERREIROS
 function makeFighter(id){
- const g=new THREE.Group();
+ if(!modelReady)return null;
+
+ const model=THREE.SkeletonUtils.clone(originalModel);
+ const root=new THREE.Group();
+ root.add(model);
+
+ const bounds=new THREE.Box3().setFromObject(model);
+ const size=new THREE.Vector3();
+ bounds.getSize(size);
+
+ const height=Math.max(size.y,.01);
+ const scale=2.65/height;
+ model.scale.setScalar(scale);
+
+ const scaledBounds=new THREE.Box3().setFromObject(model);
+ model.position.y-=scaledBounds.min.y;
+
  const color=colors[(id-1)%colors.length];
- const armor=mat(color,.55,.35);
- const metal=mat(0x9ba6b4,.8,.24);
- const leather=mat(0x29221e,.1,.85);
- const skin=mat(0xc18b68);
- const cloth=mat(color,.1,.8);
 
- const torso=box(g,.72,1,.4,armor,0,1.65,0);
- const chest=box(g,.75,.48,.12,metal,0,1.82,-.23);
- box(g,.82,.16,.44,gold,0,1.25,0);
+ model.traverse(o=>{
+  if(!o.isMesh||!o.material)return;
+  const mats=Array.isArray(o.material)?o.material:[o.material];
+  mats.forEach(m=>{
+   if(m.color){
+    const variation=new THREE.Color(color);
+    m.color.multiply(variation);
+   }
+  });
+ });
 
- const head=new THREE.Mesh(new THREE.SphereGeometry(.27,16,16),skin);
- head.position.y=2.42;head.castShadow=true;g.add(head);
+ scene.add(root);
 
- const helmet=new THREE.Mesh(new THREE.SphereGeometry(.31,16,12,0,Math.PI*2,0,Math.PI*.65),metal);
- helmet.position.y=2.48;helmet.castShadow=true;g.add(helmet);
-
- box(g,.5,.09,.12,gold,0,2.34,-.23);
-
- const arms=[];
- for(const side of [-1,1]){
-  const arm=new THREE.Group();
-  arm.position.set(side*.48,1.95,0);
-  g.add(arm);
-  box(arm,.22,.72,.24,armor,0,-.25,0);
-  const hand=new THREE.Mesh(new THREE.SphereGeometry(.13,10,10),leather);
-  hand.position.y=-.62;arm.add(hand);
-  arms.push(arm);
- }
-
- const legs=[];
- for(const side of [-1,1]){
-  const leg=new THREE.Group();
-  leg.position.set(side*.22,1.1,0);
-  g.add(leg);
-  box(leg,.27,.72,.3,metal,0,-.27,0);
-  box(leg,.3,.18,.48,leather,0,-.67,-.06);
-  legs.push(leg);
- }
-
- const sword=new THREE.Group();
- sword.position.set(.12,-.58,-.05);
- arms[1].add(sword);
- box(sword,.1,.65,.12,leather,0,0,0);
- box(sword,.055,.95,.035,metal,0,.72,0);
- box(sword,.35,.09,.12,gold,0,.22,0);
-
- const shield=new THREE.Mesh(new THREE.CylinderGeometry(.34,.29,.09,6),gold);
- shield.rotation.z=Math.PI/2;
- shield.position.set(-.05,-.35,-.12);
- arms[0].add(shield);
-
- const hpBack=new THREE.Mesh(new THREE.PlaneGeometry(1.15,.12),mat(0x220909));
- hpBack.position.set(0,3.05,0);
- g.add(hpBack);
-
- const hpFill=new THREE.Mesh(new THREE.PlaneGeometry(1.1,.08),mat(0x35dc62));
- hpFill.position.set(0,3.05,.015);
- g.add(hpFill);
-
- scene.add(g);
-
- return {
-  id,group:g,arms,legs,hp:100,maxHp:100,
-  hpFill,alive:true,attackTimer:Math.random(),
-  speed:1.5+Math.random()*.35,
+ const mixer=new THREE.AnimationMixer(model);
+ const f={
+  id,group:root,model,mixer,
+  hp:100,alive:true,
+  speed:1.5+Math.random()*.4,
+  attackTimer:Math.random(),
   phase:Math.random()*6,
-  target:null,
+  action:null,current:"",
   color
  };
+
+ playAnimation(f,"idle");
+ return f;
 }
 
 function placeFighter(f){
  const a=Math.random()*Math.PI*2;
- const r=3+Math.random()*7;
+ const r=3+Math.random()*8;
  f.group.position.set(Math.cos(a)*r,0,Math.sin(a)*r);
- f.group.rotation.y=Math.random()*Math.PI*2;
 }
 
 function addFighter(){
+ if(!modelReady){
+  document.getElementById("message").textContent=
+   "AGUARDE O MODELO 3D CARREGAR";
+  return;
+ }
+
  const f=makeFighter(nextId++);
+ if(!f)return;
+
  if(fighters.filter(x=>x.alive).length<20){
   placeFighter(f);
   fighters.push(f);
@@ -237,132 +287,113 @@ function addFighter(){
  updateHUD();
 }
 
-function startBattle(){
- if(running)return;
- if(fighters.filter(x=>x.alive).length<2){
-  addFighter();addFighter();
- }
- running=true;
- document.getElementById("message").textContent="⚔ A BATALHA COMEÇOU!";
-}
-
 function resetBattle(){
+ if(!modelReady)return;
  running=false;
  fighters.forEach(f=>scene.remove(f.group));
  queue.forEach(f=>scene.remove(f.group));
- fighters.length=0;queue.length=0;
- dead=0;nextId=1;
+ fighters.length=0;
+ queue.length=0;
+ dead=0;
+ nextId=1;
  for(let i=0;i<10;i++)addFighter();
- document.getElementById("message").textContent="A BATALHA VAI COMEÇAR";
+ document.getElementById("message").textContent=
+ "PREPARE-SE PARA A BATALHA";
  updateHUD();
 }
 
+function startBattle(){
+ if(!modelReady)return;
+ if(running)return;
+ if(fighters.filter(f=>f.alive).length<2){
+  addFighter();
+  addFighter();
+ }
+ running=true;
+ document.getElementById("message").textContent=
+ "⚔ A BATALHA COMEÇOU!";
+}
+
 function nearestEnemy(f){
- let best=null,dist=Infinity;
+ let target=null;
+ let distance=Infinity;
  for(const other of fighters){
   if(other===f||!other.alive)continue;
   const d=f.group.position.distanceTo(other.group.position);
-  if(d<dist){dist=d;best=other}
+  if(d<distance){distance=d;target=other}
  }
- return {target:best,distance:dist};
+ return {target,distance};
+}
+
+function eliminate(f){
+ if(!f.alive)return;
+ f.alive=false;
+ dead++;
+ playAnimation(f,"death");
+ document.getElementById("feed").textContent=
+ "Guerreiro #"+f.id+" eliminado!";
+
+ if(queue.length&&fighters.filter(x=>x.alive).length<20){
+  const next=queue.shift();
+  placeFighter(next);
+  fighters.push(next);
+ }
+ updateHUD();
 }
 
 function damage(f,amount){
  if(!f.alive)return;
  f.hp=Math.max(0,f.hp-amount);
- f.hpFill.scale.x=Math.max(.001,f.hp/100);
- f.hpFill.position.x=-(1.1*(1-f.hp/100))/2;
-
- if(f.hp<=0){
-  f.alive=false;
-  dead++;
-  f.group.rotation.z=Math.PI/2;
-  f.group.position.y=.1;
-  document.getElementById("feed").textContent=
-   "Guerreiro #"+f.id+" foi eliminado!";
-  const alive=fighters.filter(x=>x.alive);
-  if(queue.length&&alive.length<20){
-   const newF=queue.shift();
-   placeFighter(newF);
-   fighters.push(newF);
-  }
-  updateHUD();
- }
+ if(f.hp<=0)eliminate(f);
 }
 
-function updateFighter(f,dt,time){
+function updateFighter(f,dt){
  if(!f.alive)return;
+
  const p=f.group.position;
  const result=nearestEnemy(f);
  const target=result.target;
  if(!target)return;
 
  const tp=target.group.position;
- const dx=tp.x-p.x,dz=tp.z-p.z;
+ const dx=tp.x-p.x;
+ const dz=tp.z-p.z;
  const distance=Math.sqrt(dx*dx+dz*dz);
  const angle=Math.atan2(dx,dz);
+
  f.group.rotation.y=angle;
 
- f.phase+=dt*8;
-
- if(distance>1.65){
-  const step=Math.min(distance-1.25,f.speed*dt);
+ if(distance>1.8){
+  const step=Math.min(distance-1.5,f.speed*dt);
   p.x+=Math.sin(angle)*step;
   p.z+=Math.cos(angle)*step;
-  f.legs[0].rotation.x=Math.sin(f.phase)*.6;
-  f.legs[1].rotation.x=-Math.sin(f.phase)*.6;
-  f.arms[0].rotation.x=Math.sin(f.phase)*.15;
-  f.arms[1].rotation.x=-.35;
+  playAnimation(f,distance>5?"run":"walk");
  }else{
-  f.legs[0].rotation.x=0;
-  f.legs[1].rotation.x=0;
+  playAnimation(f,"attack");
   f.attackTimer-=dt;
-  f.arms[1].rotation.x=-.3+Math.sin(time*15)*.35;
 
   if(f.attackTimer<=0){
-   f.attackTimer=.85+Math.random()*.35;
-   if(Math.random()<.78){
-    damage(target,7+Math.random()*9);
-    f.arms[1].rotation.x=-1.8;
+   f.attackTimer=1+Math.random()*.4;
+   if(Math.random()<.75){
+    damage(target,8+Math.random()*10);
    }
   }
  }
 
- const radius=Math.sqrt(p.x*p.x+p.z*p.z);
- if(radius>11.7){
-  p.x*=11.7/radius;
-  p.z*=11.7/radius;
- }
-}
-
-const cameraTarget=new THREE.Vector3();
-function updateCamera(dt){
- const alive=fighters.filter(f=>f.alive);
- if(!alive.length)return;
-
- let x=0,z=0;
- for(const f of alive){x+=f.group.position.x;z+=f.group.position.z}
- x/=alive.length;z/=alive.length;
-
- let spread=0;
- for(const f of alive){
-  spread=Math.max(spread,f.group.position.distanceTo(new THREE.Vector3(x,0,z)));
+ const radius=Math.hypot(p.x,p.z);
+ if(radius>12){
+  p.x*=12/radius;
+  p.z*=12/radius;
  }
 
- const distance=THREE.MathUtils.clamp(19+spread*1.25,19,36);
- cameraTarget.set(x,0,z);
- const desired=new THREE.Vector3(x,distance*.72,z+distance);
- camera.position.lerp(desired,1-Math.exp(-dt*1.5));
- camera.lookAt(x,1,z);
+ f.mixer.update(dt);
 }
 
 function updateHUD(){
  document.getElementById("alive").textContent=
  fighters.filter(f=>f.alive).length;
  document.getElementById("dead").textContent=dead;
- document.getElementById("queueList").textContent=
- queue.length?queue.length+" aguardando":"Fila vazia";
-
+ document.getElementById("queueList").textContent=queue.length;
  const alive=fighters.filter(f=>f.alive);
  if(running&&alive.length===1&&queue.length===0){
   running=false;
@@ -371,15 +402,37 @@ function updateHUD(){
  }
 }
 
+function updateCamera(dt){
+ const alive=fighters.filter(f=>f.alive);
+ if(!alive.length)return;
+
+ let x=0,z=0;
+ alive.forEach(f=>{x+=f.group.position.x;z+=f.group.position.z});
+ x/=alive.length;
+ z/=alive.length;
+
+ let spread=0;
+ alive.forEach(f=>{
+  spread=Math.max(spread,
+   f.group.position.distanceTo(new THREE.Vector3(x,0,z)));
+ });
+
+ const d=THREE.MathUtils.clamp(19+spread*1.2,19,36);
+ const desired=new THREE.Vector3(x,d*.75,z+d);
+ camera.position.lerp(desired,1-Math.exp(-dt*1.7));
+ camera.lookAt(x,1,z);
+}
+
 function animate(now){
  requestAnimationFrame(animate);
  const dt=Math.min((now-lastTime)/1000||0,.04);
  lastTime=now;
 
  if(running){
-  for(const f of fighters)updateFighter(f,dt,now/1000);
+  fighters.forEach(f=>updateFighter(f,dt));
   updateHUD();
  }
+
  updateCamera(dt);
  renderer.render(scene,camera);
 }
@@ -390,7 +443,6 @@ addEventListener("resize",()=>{
  renderer.setSize(innerWidth,innerHeight);
 });
 
-resetBattle();
 animate(0);
 </script>
 </body>
